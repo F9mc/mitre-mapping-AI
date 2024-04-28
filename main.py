@@ -1,7 +1,8 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import GaussianNB, ComplementNB, BernoulliNB, CategoricalNB
+from sklearn import svm
 from sklearn.metrics import f1_score, precision_score, recall_score
 
 import yaml
@@ -314,10 +315,10 @@ def map_usecase_title(usecases: list, stats = False):
     X_val_transformed = vectorizer.transform(X_val)
 
     # Train the model
-    model = MultinomialNB()
-    model.fit(X_train_transformed, y_train)
+    model = MixedNB(categorical_features='all')
+    model.fit(X_train_transformed.toarray(), y_train)
     
-    y_val_pred = model.predict(X_val_transformed)
+    y_val_pred = model.predict(X_val_transformed.toarray())
     precision = precision_score(y_val, y_val_pred, average='macro',zero_division=0)
         
     # Recall
@@ -326,18 +327,33 @@ def map_usecase_title(usecases: list, stats = False):
     # F1 Score
     f1 = f1_score(y_val, y_val_pred, average='weighted')
     
+    # Score
+    score = model.score(X_val_transformed.toarray(), y_val)
+    
     if stats:
         print(f"""
             Model evaluation
             Precision: {precision}
             Recall: {recall}
             F1: {f1}
+            Score: {score}
             """)
     
     # Make predictions
     new_rule_names_transformed = vectorizer.transform(usecases)
 
-    predictions = model.predict(new_rule_names_transformed)    
+    predictions = model.predict(new_rule_names_transformed.toarray())    
+    probas = model.predict_proba(new_rule_names_transformed.toarray())
+    
+    
+    # Fetch multiple possible categories
+    top_categories = probas.argsort()[0][-5:] # Get the indices of the top 5 categories
+
+    print("Predicted Category:", predictions[0])
+    print("Top 5 Categories:", top_categories)
+    for i in top_categories:
+        print(y_train[i])
+    
     
     return predictions
 
