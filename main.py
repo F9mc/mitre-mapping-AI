@@ -318,7 +318,7 @@ def map_usecase_title(usecases: list, stats = False):
     model.fit(X_train_transformed, y_train)
     
     y_val_pred = model.predict(X_val_transformed)
-    precision = precision_score(y_val, y_val_pred, average='macro')
+    precision = precision_score(y_val, y_val_pred, average='macro',zero_division=0)
         
     # Recall
     recall = recall_score(y_val, y_val_pred, average='micro')

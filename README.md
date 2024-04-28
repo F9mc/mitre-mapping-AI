@@ -6,7 +6,7 @@
 2. Install requirements.txt
 
 ## Examples: 
-
+![ex.png](./docs/ex.png)
 
 ## Acknowledgments
 Sources of the trained dataset came from:
@@ -16,3 +16,4 @@ Sources of the trained dataset came from:
 - https://github.com/FalconForceTeam/FalconFriday?tab=BSD-3-Clause-1-ov-file#readme
 - https://github.com/wazuh/wazuh/?tab=License-1-ov-file#readme
 ( https://help.fortinet.com/fsiem/Public_Resource_Access/7_1_2/rules/rule_descriptions.htm#rulesMitre)
+- Mitre Att&CK: https://attack.mitre.org/techniques
