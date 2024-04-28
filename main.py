@@ -1,10 +1,22 @@
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import GaussianNB, ComplementNB, BernoulliNB, CategoricalNB
-from sklearn import svm
+from sklearn.naive_bayes import GaussianNB, ComplementNB, BernoulliNB, CategoricalNB, MultinomialNB
+from sklearn.multioutput import MultiOutputClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score
+from skmultilearn.problem_transform import BinaryRelevance
+from skmultilearn.problem_transform import ClassifierChain
+from skmultilearn.problem_transform import LabelPowerset
+from skmultilearn.adapt import MLkNN
+from sklearn.metrics import accuracy_score,hamming_loss,classification_report
 
+
+import neattext as nt
+import neattext.functions as nfx
+
+from pprint import pprint
 import yaml
 import xmltodict
 import os
@@ -289,74 +301,126 @@ def build_data_set(stats = False) -> list:
             Falcon: {len(falcon)} rules
             """)
         
-    keys = mapping[0].keys()
+        
+    """
+    To uses MLC 
+    Transform the format 
+    
+    from mapping = [{"usecase": title_name, "mitre_mapping": "XYZ"}]
+    
+    to 
+    mapping = 
+    [{
+        "usecase": title_name,
+        "tags": ["T0002", ...],
+        "T0001": 0,
+        "T0002": 1,
+        ...
+    }]
+    """
+    
+    # Step 1, get a list of all mitre ATT&CK referenced in the source data
+    mitre_techniques = []
+    for mapping_dict in mapping:
+        if not mapping_dict["mitre"] in mitre_techniques:
+            mitre_techniques.append(mapping_dict["mitre"])
+            
+                
+    # Step 2, create a new set of dict with all mitre technique at 0
+    new_mapping = []
+    already_registred = []
+    for mapping_dict in mapping:
+        new_dict = {}
+        title = mapping_dict["usecase"]
+        if not title in already_registred:
+            new_dict["usecase"] = mapping_dict["usecase"]
+            new_dict["tags"] = []
+            
+            for mitre_technique in mitre_techniques:
+                new_dict[mitre_technique] = 0
+                
+            new_mapping.append(new_dict)
+            already_registred.append(title)
+            
+    # Step 2, add classifications
+    for new_dict in new_mapping:
+        for old_dict in mapping:
+            if new_dict["usecase"] == old_dict["usecase"]:
+                new_dict[old_dict["mitre"]] = 1
+                new_dict["tags"].append(old_dict["mitre"])
+        
+        
+    keys = new_mapping[0].keys()
 
     with open('mapping.csv', 'w', newline='') as output_file:
         dict_writer = csv.DictWriter(output_file, keys)
         dict_writer.writeheader()
-        dict_writer.writerows(mapping)
+        dict_writer.writerows(new_mapping)
         
+    with open("./techniques.txt", "w") as file:
+        for t in mitre_techniques:
+            file.write(t + "\n")
+
     return mapping
+
+def get_mitre_techniques():
+    techniques = []
+    with open("techniques.txt", "r") as file:
+        for l in file.readlines():
+            technique = l.replace("\n", "")
+            if not technique in techniques:
+                techniques.append(technique)
+                
+    return techniques
+
+def build_model(model,mlb_estimator,xtrain,ytrain,xtest,ytest):
+    # Create an Instance
+    clf = mlb_estimator(model)
+    clf.fit(xtrain,ytrain)
+    # Predict
+    clf_predictions = clf.predict(xtest)
+    # Check For Accuracy
+    acc = accuracy_score(ytest,clf_predictions)
+    ham = hamming_loss(ytest,clf_predictions)
+    result = {"accuracy:":acc,"hamming_score":ham}
+    return result
+
 
 def map_usecase_title(usecases: list, stats = False):
     # Load your CSV data
     data = pd.read_csv('mapping.csv')
+    
+    # Title Noise
+    data['usecase'].apply(lambda x:nt.TextFrame(x).noise_scan())
+    # Explore For Noise
+    data['usecase'].apply(lambda x:nt.TextExtractor(x).extract_stopwords())
+    # Explore For Noise
+    corpus = data['usecase'].apply(nfx.remove_stopwords)
+    
+    tfidf = TfidfVectorizer()
+    Xfeatures = tfidf.fit_transform(corpus).toarray()
+    
+    techniques = get_mitre_techniques()
+    y = data[techniques] 
+    
+    # Split Data 
+    X_train,X_test,y_train,y_test = train_test_split(Xfeatures,y,test_size=0.2,random_state=42)
+    
+    # Create an Instance
+    clf = LabelPowerset(MultinomialNB())
+    clf.fit(X_train,y_train)
+    # Predict
+    clf_predictions = clf.predict(X_test)
+    # Check For Accuracy
+    acc = accuracy_score(y_test,clf_predictions)
+    ham = hamming_loss(y_test,clf_predictions)
+    print({"accuracy:":acc,"hamming_score":ham})
+    pprint(list(clf_predictions.toarray()))
+    
+    
+    return 0
 
-    # Split the data into features (X) and target (y)
-    X = data['usecase']
-    y = data['mitre']
-
-    # Split the data into training and validation sets
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.1, random_state=42)
-
-    # Convert text data into numerical features
-    vectorizer = TfidfVectorizer()
-    X_train_transformed = vectorizer.fit_transform(X_train)
-    X_val_transformed = vectorizer.transform(X_val)
-
-    # Train the model
-    model = MixedNB(categorical_features='all')
-    model.fit(X_train_transformed.toarray(), y_train)
     
-    y_val_pred = model.predict(X_val_transformed.toarray())
-    precision = precision_score(y_val, y_val_pred, average='macro',zero_division=0)
-        
-    # Recall
-    recall = recall_score(y_val, y_val_pred, average='micro')
-    
-    # F1 Score
-    f1 = f1_score(y_val, y_val_pred, average='weighted')
-    
-    # Score
-    score = model.score(X_val_transformed.toarray(), y_val)
-    
-    if stats:
-        print(f"""
-            Model evaluation
-            Precision: {precision}
-            Recall: {recall}
-            F1: {f1}
-            Score: {score}
-            """)
-    
-    # Make predictions
-    new_rule_names_transformed = vectorizer.transform(usecases)
-
-    predictions = model.predict(new_rule_names_transformed.toarray())    
-    probas = model.predict_proba(new_rule_names_transformed.toarray())
-    
-    
-    # Fetch multiple possible categories
-    top_categories = probas.argsort()[0][-5:] # Get the indices of the top 5 categories
-
-    print("Predicted Category:", predictions[0])
-    print("Top 5 Categories:", top_categories)
-    for i in top_categories:
-        print(y_train[i])
-    
-    
-    return predictions
-
 def main():
     args = parser.parse_args()
     
@@ -365,15 +429,15 @@ def main():
         build_data_set(args.stats)
     
     usecases = [args.title]
-    predictions = map_usecase_title(usecases, args.stats)
+    predictions = map_usecase_title(usecases, args.stats)   
 
-    for i in range(len(predictions)):
-        if args.link:
-            print(f"https://attack.mitre.org/techniques/{predictions[i].upper()}") 
-        else:
-            print(predictions[i].upper())
+    # for i in range(len(predictions)):
+    #     if args.link:
+    #         print(f"https://attack.mitre.org/techniques/{predictions[i].upper()}") 
+    #     else:
+    #         print(predictions[i].upper())
         
-    return predictions
+    # return predictions
     
         
 if __name__ == "__main__":

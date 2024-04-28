@@ -53,6 +53,8 @@ Recall: 0.3373205741626794
 F1: 0.2439527660736201
 ```
 
+### Multiple Label Classficiation (MLC)
+> Supposed that one rules name can have multiles mitre technnique
 
 
 ## Acknowledgments

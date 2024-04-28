@@ -4,3 +4,5 @@ xmltodict
 requests
 lxml
 sklearn
+matplotlib
+scikit-multilearn
