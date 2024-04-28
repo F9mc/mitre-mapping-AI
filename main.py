@@ -315,7 +315,7 @@ def map_usecase_title(usecases: list, stats = False):
     X_val_transformed = vectorizer.transform(X_val)
 
     # Train the model
-    model = MixedNB(categorical_features='all')
+    model = GaussianNB()
     model.fit(X_train_transformed.toarray(), y_train)
     
     y_val_pred = model.predict(X_val_transformed.toarray())
@@ -344,16 +344,6 @@ def map_usecase_title(usecases: list, stats = False):
 
     predictions = model.predict(new_rule_names_transformed.toarray())    
     probas = model.predict_proba(new_rule_names_transformed.toarray())
-    
-    
-    # Fetch multiple possible categories
-    top_categories = probas.argsort()[0][-5:] # Get the indices of the top 5 categories
-
-    print("Predicted Category:", predictions[0])
-    print("Top 5 Categories:", top_categories)
-    for i in top_categories:
-        print(y_train[i])
-    
     
     return predictions
 
