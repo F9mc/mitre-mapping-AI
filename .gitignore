@@ -1,3 +1,6 @@
+detection-rules/*
+S1QL-Queries/*
+Wazuh-Rules/*
 Azure-Sentinel/*
 FalconFriday/*
 sigma/*
