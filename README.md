@@ -53,10 +53,38 @@ Recall: 0.3373205741626794
 F1: 0.2439527660736201
 ```
 
-### Multiple Label Classficiation (MLC)
+### Multiple Label Classficiation (MLC) & Multiple Class Classification (MCC)
 > Supposed that one rules name can have multiles mitre technnique
 
-WIP 
+Thoses models give a mutch better accuracy
+For MCC, the avrage accuracy for a technique is over 0.9 but this if because of the large number of techniques compared to the number of 
+rules mapped in thoses techniques.
+ 
+To test the dataset I try focussing only on the Mitre technique (MCC), see branche MLC
+Precissions:
+```
+Accuracy for Privilege_Escalation is 0.8424543946932007
+Accuracy for Defense_Evasion is 0.8308457711442786
+Accuracy for Impact is 0.956882255389718
+Accuracy for Discovery is 0.9436152570480929
+Accuracy for Persistence is 0.8606965174129353
+Accuracy for Resource_Development is 0.9850746268656716
+Accuracy for Reconnaissance is 0.9950248756218906
+Accuracy for Collection is 0.9502487562189055
+Accuracy for Initial_Access is 0.8938640132669984
+Accuracy for Execution is 0.8772802653399668
+Accuracy for Credential_Access is 0.9038142620232172
+Accuracy for Lateral_Movement is 0.9552238805970149
+Accuracy for Command_and_Control is 0.9336650082918739
+Accuracy for Exfiltration is 0.988391376451078
+```
+
+However it almost never map uses cases titles to a mitre tactic.
+
+Multiples improvement for the dataset exist:
+- More exemples of mapping for each use case
+- Using the same Mitre ATT&CK versions
+- Make sure that all sources uses the same technique for the same uses cases
 
 ## Acknowledgments
 Sources of the trained dataset came from:
@@ -70,3 +98,4 @@ Sources of the trained dataset came from:
 
 Others:
 - Choice of the models: https://scikit-learn.org/stable/tutorial/machine_learning_map/index.html
+- https://medium.com/analytics-vidhya/an-introduction-to-multi-label-text-classification-b1bcb7c7364c
