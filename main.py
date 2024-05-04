@@ -1,29 +1,27 @@
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import GaussianNB, ComplementNB, BernoulliNB, CategoricalNB, MultinomialNB
-from sklearn.multioutput import MultiOutputClassifier
-from sklearn.metrics import f1_score, precision_score, recall_score
-from skmultilearn.problem_transform import BinaryRelevance
-from skmultilearn.problem_transform import ClassifierChain
-from skmultilearn.problem_transform import LabelPowerset
-from skmultilearn.adapt import MLkNN
-from sklearn.metrics import accuracy_score,hamming_loss,classification_report
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.pipeline import Pipeline
+from nltk import download
+from nltk.corpus import stopwords
+from sklearn.metrics import accuracy_score
+from sklearn.multiclass import OneVsRestClassifier  
 
+
+from build_dataset import build, MITRE_TACTICS
 
 import neattext as nt
 import neattext.functions as nfx
 
-from pprint import pprint
-import yaml
-import xmltodict
-import os
-import csv
-import re
-import requests
+
 import argparse
+
+
+
+# Downlaod stopwords 
+download('stopwords')
+stop_words = set(stopwords.words('english'))
 
 
 # Argparse set up
@@ -36,332 +34,6 @@ parser.add_argument('-b', '--build', action='store_true', help="Use to build the
 parser.add_argument('-s', '--stats', action='store_true', help="Show dataset and model stats")
 parser.add_argument('-l', '--link', action='store_true', help="Display the link to the Mitre Att&CK webpage")
 
-                    
-
-def format_technique(technique: str) -> str:
-    return technique.replace("attack.", "").split(".")[0].lower()
-
-def get_mapping_sigma() -> list:
-    """Fetch data from the sigma repository
-
-    Returns:
-        list: the list of mapping with the format [{"usecase": usecase, "mitre": tag_mitre}]
-    """
-    mapping = []
-
-    for rootdir in [
-        "./sigma/rules/",
-        "./sigma/rules-emerging-threats/",
-        "./sigma/rules-dfir/",
-        "./sigma/rules-placeholder/",
-        "./sigma/rules-dfir/",
-        "./sigma/rules-threat-hunting/"
-    ]:
-
-        # Use os.walk to iterate over the directory tree
-        for subdir, dirs, files in os.walk(rootdir):
-            for file in files:
-                # Construct the full file path by joining the subdirectory path and the file name
-                full_file_path = os.path.join(subdir, file)
-
-                if full_file_path.endswith(".yml") or full_file_path.endswith(".yaml"):
-                    with open(full_file_path, "r") as rule_file:
-                        rule_data = yaml.safe_load(rule_file)
-
-                        if type(rule_data) == dict and "tags" in rule_data:
-                            title = rule_data["title"]
-                            tags = rule_data["tags"]
-
-                            for tag in tags:
-                                if re.match(r"attack.t[0-9.]*", tag):
-                                    mapping.append({
-                                        "usecase": title,
-                                        "mitre": format_technique(tag),
-                                        "source": "sigma"
-                                })
-    return mapping
-
-def get_mapping_s1() -> list:
-    """Fetch data from the S1QL repo: https://github.com/SentineLabs/S1QL-Queries
-
-    Returns:
-        list: the list of mapping with the format [{"usecase": usecase, "mitre": tag_mitre}]
-    """
-    mapping = []
-
-    for rootdir in [
-        "./S1QL-Queries/Queries"
-    ]:
-
-        # Use os.walk to iterate over the directory tree
-        for subdir, dirs, files in os.walk(rootdir):
-            for file in files:
-                # Construct the full file path by joining the subdirectory path and the file name
-                full_file_path = os.path.join(subdir, file)
-
-                if full_file_path.endswith(".yml") or full_file_path.endswith(".yaml"):
-                    with open(full_file_path, "r") as rule_file:
-                        rule_data = yaml.safe_load(rule_file)
-
-                        if type(rule_data) == dict and "tags" in rule_data:
-                            title = rule_data["title"]
-                            tags = rule_data["tags"]
-
-                            for tag in tags:
-                                if re.match(r"mitre.T[0-9.]*", tag):
-                                    mapping.append({
-                                        "usecase": title,
-                                        "mitre": format_technique(tag.replace("mitre.", "")),
-                                        "source": "s1ql"
-                                    })
-
-    return mapping
-        
-def get_mapping_sentinel() -> list:
-    """Fetch rule and the associated mitre mapping from the Sentinel repo: https://github.com/Azure/Azure-Sentinel/tree/master
-
-    Returns:
-        list: the list of mapping with the format [{"usecase": usecase, "mitre": tag_mitre}]
-    """
-    mapping = []
-
-    for rootdir in [
-        "./Azure-Sentinel/Detections/",
-        "./Azure-Sentinel/Hunting Queries/"
-    ]:
-
-        # Use os.walk to iterate over the directory tree
-        for subdir, dirs, files in os.walk(rootdir):
-            for file in files:
-                # Construct the full file path by joining the subdirectory path and the file name
-                full_file_path = os.path.join(subdir, file)
-
-                if full_file_path.endswith(".yml") or full_file_path.endswith(".yaml"):
-                    with open(full_file_path, "r") as rule_file:
-                        rule_data = yaml.safe_load(rule_file)
-
-                        if type(rule_data) == dict and "relevantTechniques" in rule_data:
-                            title = rule_data["name"]
-                            tags = rule_data["relevantTechniques"]
-                            if tags and tags != [] and type(tags) == list:
-                                for tag in tags:
-                                    mapping.append({
-                                            "usecase": title,
-                                            "mitre": format_technique(tag),
-                                            "source": "Sentinel"
-                                        })
-                            elif type(tags) == str and tags != "":
-                                mapping.append({
-                                        "usecase": title,
-                                        "mitre": format_technique(tag),
-                                        "source": "Setinel"
-                                    })
-    return mapping
-
-def get_mapping_wazuh() -> list:
-    """Fetch rules and the associated mitre technique from the Wazu repo and the SOCfortress wazuh detection rules repo: https://github.com/socfortress/Wazuh-Rules.git
-
-    Returns:
-        list: the list of mapping with the format [{"usecase": usecase, "mitre": tag_mitre}]
-    """
-    mapping = []
-    
-    rootdirs = ["wazuh/ruleset/rules", "Wazuh-Rules/"]
-    
-    for rootdir in rootdirs:
-        # Use os.walk to iterate over the directory tree
-        for subdir, dirs, files in os.walk(rootdir):
-            for file in files:
-                # Construct the full file path by joining the subdirectory path and the file name
-                full_file_path = os.path.join(subdir, file)
-                if full_file_path.endswith(".xml"):
-                    
-                    with open(full_file_path, "r") as rule_file:
-                        try:
-                            data = xmltodict.parse(rule_file.read())
-                    
-                        except :
-                            print(f"error in file {full_file_path}")
-                            
-                        else:
-                    
-                            for rule in data['group']['rule']:
-                                if "mitre" in rule and type(rule) == dict:
-                                    if type(rule["mitre"]["id"]) == list:
-                                        for tag in rule["mitre"]["id"]:
-                                            if not tag.startswith("TA"):
-                                                mapping.append({
-                                                        "usecase": rule["description"],
-                                                        "mitre": format_technique(tag),
-                                                        "source": "Wazuh"
-                                                    })
-                                    elif type(rule["mitre"]["id"] == str):
-                                        if not rule["mitre"]["id"].startswith("TA"):
-                                            mapping.append({
-                                                        "usecase": rule["description"],
-                                                        "mitre": format_technique(rule["mitre"]["id"]),
-                                                        "source": "Wazuh"
-                                                    })
-                                
-    return mapping
-
-def get_mapping_fortinet() -> list:
-    """Fetch rule name and the associated mitre mapping from the Falcon friday repo: https://github.com/FalconForceTeam/FalconFriday
-
-    Returns:
-        list: the list of mapping with the format [{"usecase": usecase, "mitre": tag_mitre}]
-    """
-    mapping = []
-    
-    url = "https://help.fortinet.com/fsiem/Public_Resource_Access/7_1_2/rules/rule_descriptions.htm#rulesMitre"
-    
-    res = requests.get(url)
-    
-    tables = pd.read_html(res.text)
-    for table in tables:
-
-        table = table.drop("Tactic", axis=1 )
-        table = table.drop("Severity", axis=1 )
-            
-        for record_dict in  table.to_dict(orient='records'):
-            if not record_dict["Technique"] == "none":
-                techniques = record_dict["Technique"].split(",")
-                for technique in techniques:
-                    mapping.append(
-                        {
-                            "usecase": record_dict["Name"],  
-                            "mitre": format_technique(technique),
-                            "source": "Fortinet"
-                        }
-                    )
-            
-    return mapping
-
-def get_mapping_falconfriday() -> list:
-    """Fetch data from the falconfriday repository
-
-    Returns:
-        list: the list of mapping with the format [{"usecase": usecase, "mitre": tag_mitre}]
-    """
-    mapping = []
-    
-    rootdir = "./FalconFriday/"
-    
-    # Use os.walk to iterate over the directory tree
-    for subdir, dirs, files in os.walk(rootdir):
-        for file in files:
-            is_first_line = True
-            # Construct the full file path by joining the subdirectory path and the file name
-            full_file_path = os.path.join(subdir, file)
-            if full_file_path.endswith(".md"):
-                with open(full_file_path, "r") as rule_file:
-                    for line in rule_file.readlines():
-                        if is_first_line:
-                            is_first_line = False
-                            title = line.replace("\n", "").replace("# ", "")
-                        matchs = re.findall(r"T[0-9]{4}", line)
-                        if matchs != []:
-                            for tag in matchs:
-                                title = re.sub(r"T[0-9]{4} - ", "", title)
-                                title = re.sub(r"T[0-9]{4}.[0-9]{3} - ", "", title)
-                                mapping.append({
-                                    "usecase": title,
-                                    "mitre": format_technique(tag),
-                                    "source": "falcon"
-                                })
-                            
-                                
-    return mapping
-
-def build_data_set(stats = False) -> list:
-    mapping = []
-    
-    sentinel = get_mapping_sentinel()
-    sigma = get_mapping_sigma()
-    wazuh = get_mapping_wazuh()
-    fortinet = get_mapping_fortinet()
-    s1ql = get_mapping_s1()
-    falcon = get_mapping_falconfriday()
-    
-    mapping.extend(sentinel)
-    mapping.extend(sigma)
-    mapping.extend(wazuh)
-    mapping.extend(fortinet)    
-    mapping.extend(s1ql)
-    mapping.extend(falcon)
-    
-    if stats:
-        print(f"""
-            Dataset build, with the following ruleset:
-            Sigma: {len(sigma)} rules
-            Sentinel: {len(sentinel)} rules
-            Wazuh: {len(wazuh)} rules
-            Fortinet: {len(fortinet)} rules
-            S1QL: {len(s1ql)} rules
-            Falcon: {len(falcon)} rules
-            """)
-        
-        
-    """
-    To uses MLC 
-    Transform the format 
-    
-    from mapping = [{"usecase": title_name, "mitre_mapping": "XYZ"}]
-    
-    to 
-    mapping = 
-    [{
-        "usecase": title_name,
-        "tags": ["T0002", ...],
-        "T0001": 0,
-        "T0002": 1,
-        ...
-    }]
-    """
-    
-    # Step 1, get a list of all mitre ATT&CK referenced in the source data
-    mitre_techniques = []
-    for mapping_dict in mapping:
-        if not mapping_dict["mitre"] in mitre_techniques:
-            mitre_techniques.append(mapping_dict["mitre"])
-            
-                
-    # Step 2, create a new set of dict with all mitre technique at 0
-    new_mapping = []
-    already_registred = []
-    for mapping_dict in mapping:
-        new_dict = {}
-        title = mapping_dict["usecase"]
-        if not title in already_registred:
-            new_dict["usecase"] = mapping_dict["usecase"]
-            new_dict["tags"] = []
-            
-            for mitre_technique in mitre_techniques:
-                new_dict[mitre_technique] = 0
-                
-            new_mapping.append(new_dict)
-            already_registred.append(title)
-            
-    # Step 2, add classifications
-    for new_dict in new_mapping:
-        for old_dict in mapping:
-            if new_dict["usecase"] == old_dict["usecase"]:
-                new_dict[old_dict["mitre"]] = 1
-                new_dict["tags"].append(old_dict["mitre"])
-        
-        
-    keys = new_mapping[0].keys()
-
-    with open('mapping.csv', 'w', newline='') as output_file:
-        dict_writer = csv.DictWriter(output_file, keys)
-        dict_writer.writeheader()
-        dict_writer.writerows(new_mapping)
-        
-    with open("./techniques.txt", "w") as file:
-        for t in mitre_techniques:
-            file.write(t + "\n")
-
-    return mapping
 
 def get_mitre_techniques():
     techniques = []
@@ -372,18 +44,6 @@ def get_mitre_techniques():
                 techniques.append(technique)
                 
     return techniques
-
-def build_model(model,mlb_estimator,xtrain,ytrain,xtest,ytest):
-    # Create an Instance
-    clf = mlb_estimator(model)
-    clf.fit(xtrain,ytrain)
-    # Predict
-    clf_predictions = clf.predict(xtest)
-    # Check For Accuracy
-    acc = accuracy_score(ytest,clf_predictions)
-    ham = hamming_loss(ytest,clf_predictions)
-    result = {"accuracy:":acc,"hamming_score":ham}
-    return result
 
 
 def map_usecase_title(usecases: list, stats = False):
@@ -400,25 +60,50 @@ def map_usecase_title(usecases: list, stats = False):
     tfidf = TfidfVectorizer()
     Xfeatures = tfidf.fit_transform(corpus).toarray()
     
-    techniques = get_mitre_techniques()
-    y = data[techniques] 
+    y = data[MITRE_TACTICS]
     
     # Split Data 
-    X_train,X_test,y_train,y_test = train_test_split(Xfeatures,y,test_size=0.2,random_state=42)
+    train, test = train_test_split(data,test_size=0.1,random_state=42)
+    X_train = train.usecase
+    X_test = test.usecase   
     
-    # Create an Instance
-    clf = LabelPowerset(MultinomialNB())
-    clf.fit(X_train,y_train)
-    # Predict
-    clf_predictions = clf.predict(X_test)
-    # Check For Accuracy
-    acc = accuracy_score(y_test,clf_predictions)
-    ham = hamming_loss(y_test,clf_predictions)
-    print({"accuracy:":acc,"hamming_score":ham})
-    pprint(list(clf_predictions.toarray()))
+    use_cases_dict_list = []
     
+    for uc in usecases:
+        use_cases_dict_list.append({
+            "usecase": uc
+        })
+        
+    uc_df = pd.DataFrame(use_cases_dict_list) 
+    print(uc_df)
     
-    return 0
+    result = []
+
+    for tag in y:
+    
+        # Define a pipeline combining a text feature extractor with multi lable classifier
+        NB_pipeline = Pipeline([
+                        ('tfidf', TfidfVectorizer()),
+                        ('clf', OneVsRestClassifier(MultinomialNB(
+                            fit_prior=True, class_prior=None))),
+                    ])
+
+        # train the model using X_dtm & y
+        NB_pipeline.fit(X_train, train[tag])
+
+        if stats:
+            # compute the testing accuracy
+            prediction = NB_pipeline.predict(X_test)
+            print(f'Accuracy for {tag} is {accuracy_score(test[tag], prediction)}')
+            
+            
+        # compute the testing accuracy
+        prediction_tag = NB_pipeline.predict(uc_df)
+        for i in range(len(prediction_tag)):
+            if prediction_tag[i] == 1:
+                print(tag)
+                result.append(tag)
+    return result
 
     
 def main():
@@ -426,18 +111,21 @@ def main():
     
     if args.build:
         print("Building dataset")
-        build_data_set(args.stats)
+        build(args.stats)
     
     usecases = [args.title]
-    predictions = map_usecase_title(usecases, args.stats)   
+    predictions = map_usecase_title([
+        "Windows: HackTool - Mimikatz Execution"
+        ], args.stats)   
+    print(predictions)
 
-    # for i in range(len(predictions)):
-    #     if args.link:
-    #         print(f"https://attack.mitre.org/techniques/{predictions[i].upper()}") 
-    #     else:
-    #         print(predictions[i].upper())
+    for i in range(len(predictions)):
+        if args.link:
+            print(f"https://attack.mitre.org/techniques/{predictions[i].upper()}") 
+        else:
+            print(predictions[i].upper())
         
-    # return predictions
+    return predictions
     
         
 if __name__ == "__main__":
